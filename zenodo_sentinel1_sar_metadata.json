@@ -1,0 +1,165 @@
+{
+  "dataset_source": "Zenodo Sentinel-1 SAR Oil Spill Benchmark (DOI: 10.5281/zenodo.3842416)",
+  "satellite": "Sentinel-1A",
+  "instrument": "C-SAR (5.405 GHz)",
+  "acquisition_mode": "Interferometric Wide Swath (IW)",
+  "product_type": "GRD High Resolution (GRDH)",
+  "polarizations": [
+    "VV",
+    "VH"
+  ],
+  "orbit_direction": "DESCENDING",
+  "relative_orbit_number": 112,
+  "slice_number": 8,
+  "pixel_spacing_meters": 10.0,
+  "incidence_angle_mid_deg": 34.8,
+  "scene_granule_id": "S1A_IW_GRDH_1SDV_20260929T100000_20260929T100025_050412_060789_A12B",
+  "acquisition_timestamp_utc": "2026-09-29T10:00:00Z",
+  "geographic_bounding_box": {
+    "min_lon": 72.05,
+    "min_lat": 19.12,
+    "max_lon": 72.45,
+    "max_lat": 19.48
+  },
+  "detected_slick_centroid": {
+    "lat": 19.182,
+    "lon": 72.115
+  },
+  "environmental_auxiliary": {
+    "ecmwf_wind_speed_ms": 8.5,
+    "ecmwf_wind_direction_deg": 250.0,
+    "surface_current_speed_ms": 0.64,
+    "surface_current_direction_deg": 55.0
+  },
+  "dark_patch_morphology": {
+    "area_sq_km": 14.82,
+    "perimeter_km": 18.24,
+    "major_axis_length_km": 6.84,
+    "minor_axis_length_km": 2.18,
+    "orientation_angle_deg": 58.5,
+    "compactness_index": 0.44,
+    "estimated_oil_volume_bbls": 850
+  },
+  "ml_segmentation_prediction": {
+    "architecture": "U-Net + ResNet34 Encoder with Attention Gates",
+    "oil_spill_confidence": 0.962,
+    "lookalike_probability": 0.038,
+    "bragg_damping_verified": true
+  },
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "class_id": 1,
+          "class_name": "Confirmed Oil Spill",
+          "granule_id": "S1A_IW_GRDH_1SDV_20260929T100000_20260929T100025_050412_060789_A12B",
+          "confidence_score": 0.962,
+          "backscatter_dampening_db": -8.4,
+          "damping_ratio": 6.9,
+          "major_axis_orientation_deg": 58.5,
+          "slick_length_km": 6.84,
+          "slick_mean_width_km": 2.18,
+          "area_km2": 14.82,
+          "estimated_volume_bbls": 850
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                72.102,
+                19.171
+              ],
+              [
+                72.1105,
+                19.1765
+              ],
+              [
+                72.122,
+                19.186
+              ],
+              [
+                72.128,
+                19.1915
+              ],
+              [
+                72.125,
+                19.194
+              ],
+              [
+                72.114,
+                19.187
+              ],
+              [
+                72.106,
+                19.179
+              ],
+              [
+                72.098,
+                19.173
+              ],
+              [
+                72.102,
+                19.171
+              ]
+            ]
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "class_id": 2,
+          "class_name": "Low-wind / Look-alike Sheen Margin",
+          "confidence_score": 0.35,
+          "backscatter_dampening_db": -2.1
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                72.125,
+                19.194
+              ],
+              [
+                72.132,
+                19.199
+              ],
+              [
+                72.136,
+                19.196
+              ],
+              [
+                72.128,
+                19.1915
+              ],
+              [
+                72.125,
+                19.194
+              ]
+            ]
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "class_id": 3,
+          "class_name": "Ship Point Target (Metallic Backscatter Peak)",
+          "backscatter_sigma0_db": 18.5,
+          "associated_mmsi": 636018244
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            72.415,
+            19.445
+          ]
+        }
+      }
+    ]
+  }
+}

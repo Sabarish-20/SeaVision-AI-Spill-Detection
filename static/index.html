@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeaVision AI // Real-Time Maritime Oil Spill Detection & Polluter Attribution</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            tactical: {
+              bg: '#030712',
+              card: '#0b1329',
+              border: '#1e293b',
+              cyan: '#06b6d4',
+              amber: '#f59e0b',
+              red: '#ef4444',
+              emerald: '#10b981'
+            }
+          },
+          animation: {
+            'radar-sweep': 'radarSweep 4s linear infinite',
+            'pulse-glow': 'pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+          },
+          keyframes: {
+            radarSweep: {
+              '0%': { transform: 'rotate(0deg)' },
+              '100%': { transform: 'rotate(360deg)' }
+            },
+            pulseGlow: {
+              '0%, 100%': { opacity: '1', filter: 'drop-shadow(0 0 15px rgba(239, 68, 68, 0.8))' },
+              '50%': { opacity: '0.6', filter: 'drop-shadow(0 0 5px rgba(239, 68, 68, 0.4))' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      background-color: #030712;
+      color: #f1f5f9;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #0b1329;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #06b6d4;
+    }
+    .leaflet-container {
+      background: #050b1a !important;
+    }
+    .radar-spinner {
+      background: conic-gradient(from 0deg, rgba(6, 182, 212, 0.4) 0deg, rgba(6, 182, 212, 0) 60deg);
+      border-radius: 50%;
+    }
+    @keyframes ping-slow {
+      0% { transform: scale(0.9); opacity: 1; }
+      100% { transform: scale(2.4); opacity: 0; }
+    }
+    .animate-ping-slow {
+      animation: ping-slow 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col select-none">
+
+  <!-- ==================================================================== -->
+  <!-- 1. TOP TACTICAL HEADER                                               -->
+  <!-- ==================================================================== -->
+  <header class="h-14 bg-slate-900/90 border-b border-slate-800 px-4 flex items-center justify-between z-30 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="h-9 w-9 rounded-md bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-950">
+        <i data-lucide="shield" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="font-mono font-black text-sm tracking-wider text-cyan-400">SEAVISION AI</span>
+          <span class="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/40 font-mono font-bold tracking-wide">
+            MARPOL SURVEILLANCE
+          </span>
+          <span id="api-status-badge" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono">
+            API CONNECTED (8000)
+          </span>
+        </div>
+        <p class="text-[10px] text-slate-400 font-mono">REAL-TIME SENTINEL-1 SAR DARK PATCH & AIS ANOMALY CORRELATION</p>
+      </div>
+    </div>
+
+    <!-- Center Mode Switcher Tabs -->
+    <div class="hidden md:flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-mono">
+      <button id="tab-tactical" class="px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 transition font-bold flex items-center gap-1.5">
+        <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+        <span>Tactical Map</span>
+      </button>
+      <button id="tab-mosdac" class="px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+        <i data-lucide="satellite" class="w-3.5 h-3.5"></i>
+        <span>ISRO MOSDAC Gateway</span>
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      </button>
+      <button id="tab-marinecadastre" class="px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+        <i data-lucide="compass" class="w-3.5 h-3.5"></i>
+        <span>Marine Cadastre AIS</span>
+      </button>
+      <button id="tab-zenodo" class="px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+        <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+        <span>Zenodo S1 SAR</span>
+      </button>
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <button id="btn-import-ais" class="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono px-3 py-2 rounded border border-slate-700 transition cursor-pointer">
+        <i data-lucide="upload" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span>IMPORT AIS CSV</span>
+      </button>
+
+      <button id="btn-export-dossier" class="flex items-center space-x-1.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white text-xs font-bold font-mono px-3.5 py-2 rounded-md border border-red-400/30 shadow-lg shadow-red-950 transition cursor-pointer">
+        <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+        <span>EVIDENCE DOSSIER</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================================================================== -->
+  <!-- REAL-TIME MARITIME SURVEILLANCE & LIVE SIMULATION BANNER             -->
+  <!-- ==================================================================== -->
+  <div class="h-10 bg-gradient-to-r from-red-950/90 via-slate-900/95 to-slate-950 border-b border-red-500/30 px-4 flex items-center justify-between z-20 shrink-0 font-mono text-xs">
+    <div class="flex items-center space-x-3 overflow-hidden">
+      <div class="flex items-center space-x-1.5 shrink-0">
+        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-red-500 -ml-4"></span>
+        <span class="text-red-400 font-bold tracking-wider uppercase flex items-center gap-1">
+          <i data-lucide="radio" class="w-3.5 h-3.5"></i>
+          LIVE RADAR PASS
+        </span>
+      </div>
+
+      <div class="h-4 w-px bg-slate-800"></div>
+
+      <!-- Live Scenario Dropdown -->
+      <div class="flex items-center space-x-1.5 shrink-0">
+        <span class="text-slate-400 text-[11px] font-bold">SCENARIO:</span>
+        <select id="select-scenario" class="bg-slate-950 text-cyan-300 border border-slate-700 rounded px-2 py-0.5 text-[11px] font-bold focus:outline-none focus:border-cyan-400 cursor-pointer">
+          <option value="mumbai_high" selected>📍 Scenario 1: Mumbai High Offshore Basin (VLCC Heavy Crude Dump)</option>
+          <option value="gulf_of_kachchh">📍 Scenario 2: Gulf of Kachchh Fairway (Chemical Tanker Bunker Spill)</option>
+          <option value="bay_of_bengal">📍 Scenario 3: Bay of Bengal Approaches (Ore-Bulk-Oil Bilge Flush)</option>
+        </select>
+      </div>
+
+      <div class="h-4 w-px bg-slate-800 hidden lg:block"></div>
+
+      <!-- Live Alert Ticker -->
+      <div id="live-alert-ticker" class="text-slate-300 text-[11px] truncate flex items-center gap-2">
+        <span class="text-amber-400 font-bold flex items-center gap-1">
+          <i data-lucide="alert-circle" class="w-3 h-3"></i>
+          [ACTIVE MARITIME ALERT]
+        </span>
+        <span id="ticker-message" class="text-slate-200">Sentinel-1 SAR Slick (14.82 km²) detected | Primary Suspect: MT ARABIAN TITAN (100% Guilt Match)</span>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="flex items-center space-x-2 shrink-0">
+      <button id="btn-sound-toggle" class="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] border border-slate-700 transition cursor-pointer">
+        <i id="sound-icon" data-lucide="volume-2" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span id="sound-label">SOUND: ON</span>
+      </button>
+
+      <button id="btn-run-realtime-sim" class="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-red-600 via-amber-600 to-orange-500 hover:brightness-110 text-white font-bold rounded text-[11px] shadow-md shadow-red-950 border border-red-400/40 transition cursor-pointer">
+        <i data-lucide="radar" class="w-3.5 h-3.5 animate-spin"></i>
+        <span>▶️ SIMULATE REAL-TIME DETECTION PASS</span>
+      </button>
+
+      <button id="btn-dispatch-icg" class="flex items-center gap-1 px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white font-bold rounded text-[11px] border border-red-500 transition cursor-pointer shadow-sm shadow-red-900">
+        <i data-lucide="siren" class="w-3.5 h-3.5"></i>
+        <span>🚨 DISPATCH COAST GUARD</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- 2. MAIN WORKSPACE CONTENT AREA                                       -->
+  <!-- ==================================================================== -->
+  <div class="flex flex-1 overflow-hidden relative">
+
+    <!-- VIEW 1: TACTICAL MAP & HINDCAST COMMAND CENTER -->
+    <div id="view-tactical" class="flex flex-1 overflow-hidden w-full h-full">
+      
+      <!-- LEFT COLUMN: Incident & Ocean Drift Controls -->
+      <aside class="w-84 bg-slate-900/80 border-r border-slate-800 flex flex-col p-3.5 space-y-3.5 overflow-y-auto custom-scroll text-xs font-mono shrink-0">
+        
+        <!-- SAR Incident Card -->
+        <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1.5">
+            <span class="text-slate-300 font-bold flex items-center gap-1.5">
+              <i data-lucide="satellite" class="w-3.5 h-3.5 text-cyan-400"></i>
+              SAR SENSOR TELEMETRY
+            </span>
+            <span id="incident-status-pill" class="text-red-400 font-bold px-1.5 py-0.2 rounded bg-red-500/20 border border-red-500/30 text-[10px]">CRITICAL</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div>
+              <span class="text-slate-500">Incident ID:</span>
+              <p id="sar-incident-id" class="text-slate-200 font-bold">SV-IND-2026-0929-01</p>
+            </div>
+            <div>
+              <span class="text-slate-500">ML Confidence:</span>
+              <p id="sar-confidence" class="text-cyan-400 font-bold">96.2% (U-Net)</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Slick Area:</span>
+              <p id="sar-area" class="text-amber-400 font-bold">14.82 km²</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Est. Volume:</span>
+              <p id="sar-volume" class="text-amber-400 font-bold">850 bbls</p>
+            </div>
+            <div class="col-span-2">
+              <span class="text-slate-500">Detection Centroid:</span>
+              <p id="sar-coords" class="text-slate-300">19.1820°N, 72.1150°E</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ocean Current Controls -->
+        <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-3">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1">
+            <span class="text-slate-300 font-bold flex items-center gap-1.5">
+              <i data-lucide="waves" class="w-3.5 h-3.5 text-cyan-400"></i>
+              OCEAN CURRENT (100%)
+            </span>
+            <span id="current-val-label" class="text-cyan-400 font-bold">1.25 kts @ 055°</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+              <span>Current Speed:</span>
+              <span id="current-spd-text" class="text-slate-200 font-bold">1.25 knots</span>
+            </div>
+            <input id="slider-current-speed" type="range" min="0.0" max="4.0" step="0.05" value="1.25"
+                   class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+              <span>Current Direction:</span>
+              <span id="current-dir-text" class="text-slate-200 font-bold">055° (ENE)</span>
+            </div>
+            <input id="slider-current-dir" type="range" min="0" max="360" step="1" value="55"
+                   class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer">
+          </div>
+        </div>
+
+        <!-- Wind Leeway Controls -->
+        <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-3">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1">
+            <span class="text-slate-300 font-bold flex items-center gap-1.5">
+              <i data-lucide="wind" class="w-3.5 h-3.5 text-cyan-400"></i>
+              WIND LEEWAY (3%)
+            </span>
+            <span id="wind-val-label" class="text-cyan-400 font-bold">16.5 kts @ 070°</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+              <span>Wind Speed:</span>
+              <span id="wind-spd-text" class="text-slate-200 font-bold">16.5 knots</span>
+            </div>
+            <input id="slider-wind-speed" type="range" min="0.0" max="40.0" step="0.5" value="16.5"
+                   class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+              <span>Wind Direction:</span>
+              <span id="wind-dir-text" class="text-slate-200 font-bold">070° (ENE)</span>
+            </div>
+            <input id="slider-wind-dir" type="range" min="0" max="360" step="1" value="70"
+                   class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer">
+          </div>
+        </div>
+
+        <!-- Calculated Origin Summary Card -->
+        <div class="p-3 bg-slate-950 rounded-lg border border-cyan-500/30 space-y-2">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1">
+            <span class="text-cyan-300 font-bold flex items-center gap-1.5">
+              <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+              HINDCAST DRIFT ORIGIN (T₀)
+            </span>
+            <span class="text-[10px] text-slate-400">-3.5 HRS</span>
+          </div>
+          <div class="space-y-1 text-[11px]">
+            <div class="flex justify-between">
+              <span class="text-slate-500">Origin Point:</span>
+              <span id="origin-coord-text" class="text-cyan-400 font-bold">19.1303°N, 72.0230°E</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Drift Displacement:</span>
+              <span id="origin-dist-text" class="text-slate-200 font-bold">11.31 km</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Net Drift Velocity:</span>
+              <span id="origin-vector-text" class="text-slate-200 font-bold">3.23 km/h @ 058.5°</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reset Button -->
+        <button id="btn-reset-env" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-bold transition flex items-center justify-center space-x-1.5 border border-slate-700 cursor-pointer">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+          <span>RESET TO BASE CONDITIONS</span>
+        </button>
+      </aside>
+
+      <!-- CENTER COLUMN: Interactive Tactical Map + Timeline -->
+      <main class="flex-1 flex flex-col relative bg-slate-950 overflow-hidden">
+        
+        <div id="tactical-map" class="flex-1 w-full h-full relative z-0"></div>
+
+        <!-- Tactical Map Overlays Legend -->
+        <div class="absolute top-4 left-4 z-10 bg-slate-900/90 backdrop-blur border border-slate-800 p-3 rounded-lg shadow-2xl text-[11px] font-mono space-y-1.5 pointer-events-auto">
+          <div class="text-slate-400 font-bold border-b border-slate-800 pb-1 flex items-center justify-between">
+            <span>TACTICAL MAP OVERLAYS</span>
+            <span id="region-legend-label" class="text-[9px] text-cyan-400">INDIAN EEZ</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-3 bg-red-600/50 border border-red-500 rounded-sm"></div>
+            <span class="text-slate-300">Sentinel-1 SAR Oil Slick Mask</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="w-4 h-0.5 border-t-2 border-dashed border-cyan-400"></div>
+            <span class="text-slate-300">Hindcast Reverse Drift Vector</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-red-500 border border-white"></div>
+            <span class="text-slate-300">Calculated Spill Origin (T₀)</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-1 bg-amber-500"></div>
+            <span class="text-slate-300">Accused Vessel Trajectory</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="text-xs">⚠️</span>
+            <span class="text-slate-300">AIS Blackout Anomaly Zone</span>
+          </div>
+        </div>
+
+        <!-- Live Real-Time Tactical Stream HUD (Floating Top Right) -->
+        <div class="absolute top-4 right-4 z-10 bg-slate-950/95 backdrop-blur border border-red-500/40 p-3 rounded-lg shadow-2xl text-[11px] font-mono w-80 space-y-2 pointer-events-auto">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1.5">
+            <span class="text-red-400 font-bold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+              REAL-TIME MARITIME ALERTS
+            </span>
+            <span id="hud-level-badge" class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px] font-bold border border-red-500/30">
+              FLASH LEVEL 1
+            </span>
+          </div>
+          
+          <!-- Latest Alert Banner -->
+          <div id="hud-critical-alert" class="p-2 rounded bg-red-950/40 border border-red-500/40 space-y-1">
+            <div class="flex justify-between text-[10px]">
+              <span class="text-red-300 font-bold truncate" id="hud-alert-title">POLLUTER MATCH: MT ARABIAN TITAN</span>
+              <span class="text-slate-400" id="hud-alert-time">LIVE</span>
+            </div>
+            <p class="text-[10px] text-slate-300 leading-tight" id="hud-alert-desc">
+              100% guilt correlation. 45 min transponder blackout coincided with reverse-drift discharge origin.
+            </p>
+          </div>
+
+          <!-- Real-time Event Log Terminal -->
+          <div class="space-y-1">
+            <div class="flex justify-between text-[10px] text-slate-400 font-bold">
+              <span>SURVEILLANCE EVENT STREAM</span>
+              <span class="text-cyan-400">TELEMETRY NRT</span>
+            </div>
+            <div id="hud-event-stream" class="h-28 overflow-y-auto custom-scroll space-y-1 text-[10px] text-slate-400 bg-slate-900/80 p-2 rounded border border-slate-800">
+              <div class="text-slate-400">[SYSTEM] Multi-Source MDA Monitoring Engine initialized.</div>
+              <div class="text-emerald-400">[MOSDAC] Oceansat-3 OSCAT wind vector assimilated.</div>
+              <div class="text-cyan-400">[SAR] Sentinel-1 granule U-Net segmentation complete.</div>
+              <div class="text-amber-400">[HINDCAST] Reverse drift localized origin with 11 waypoints.</div>
+              <div class="text-red-400 font-bold">[ALERT] MARPOL violation flagged on primary suspect.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-Time Simulation Stepper Banner (Floats over map during active simulation) -->
+        <div id="sim-stepper-hud" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border border-cyan-400/60 shadow-2xl px-5 py-2.5 rounded-full flex items-center gap-3 font-mono text-xs">
+          <span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+          <span id="sim-step-text" class="text-cyan-300 font-bold">STEP 1/5: INGESTING SENTINEL-1 SAR PASS...</span>
+        </div>
+
+        <!-- Bottom Timeline Scrubber -->
+        <div class="h-20 bg-slate-900/95 border-t border-slate-800 px-6 py-2 flex flex-col justify-center space-y-1.5 z-10 shrink-0">
+          <div class="flex justify-between items-center text-xs font-mono">
+            <div class="flex items-center space-x-3">
+              <button id="btn-play-pause" class="p-1.5 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 hover:bg-cyan-500/30 transition cursor-pointer">
+                <i id="play-icon" data-lucide="play" class="w-4 h-4"></i>
+              </button>
+              <div>
+                <span class="text-slate-400">SIMULATION TIME: </span>
+                <span id="timeline-label" class="text-cyan-400 font-bold">T_detect (10:00 UTC - NOW)</span>
+              </div>
+            </div>
+
+            <div class="text-slate-400 text-[11px]">
+              <span>T₀ DISCHARGE</span> &rarr; <span>T_DETECT (SAR OBSERVATION)</span>
+            </div>
+          </div>
+
+          <input id="slider-timeline" type="range" min="0.0" max="4.5" step="0.05" value="4.5"
+                 class="w-full accent-cyan-400 h-2 bg-slate-800 rounded appearance-none cursor-pointer">
+        </div>
+      </main>
+
+      <!-- RIGHT COLUMN: Ranked Polluters Dossier -->
+      <aside class="w-96 bg-slate-900/80 border-l border-slate-800 flex flex-col p-3.5 space-y-3.5 overflow-y-auto custom-scroll shrink-0 font-mono">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500"></i>
+            <h2 class="font-bold text-sm text-slate-100">VESSEL ATTRIBUTION</h2>
+          </div>
+          <span id="vessel-count-badge" class="text-xs text-slate-400">4 TRACKED</span>
+        </div>
+
+        <div id="vessel-cards-container" class="space-y-3">
+          <!-- Injected dynamically via JS -->
+        </div>
+      </aside>
+    </div>
+
+    <!-- VIEW 4: ISRO MOSDAC SATELLITE GATEWAY & OCEAN FORECAST -->
+    <div id="view-mosdac" class="hidden flex-1 flex-col p-6 bg-slate-950 overflow-y-auto custom-scroll font-mono">
+      <div class="max-w-6xl mx-auto w-full space-y-5">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-lg font-bold text-emerald-400 flex items-center gap-2">
+              <i data-lucide="satellite" class="w-5 h-5"></i>
+              ISRO MOSDAC SATELLITE DATA GATEWAY (SAC, AHMEDABAD)
+            </h2>
+            <p class="text-xs text-slate-400">Official Space Applications Centre Oceanographic API & Download Portal: mosdac.gov.in</p>
+          </div>
+          <button id="btn-sync-mosdac" class="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded text-xs font-bold transition shadow-lg shadow-emerald-950 cursor-pointer">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>SYNC REAL-TIME MOSDAC TELEMETRY</span>
+          </button>
+        </div>
+
+        <!-- Live Status Card -->
+        <div class="grid grid-cols-4 gap-3 text-xs bg-slate-900/80 p-4 rounded-lg border border-slate-800">
+          <div>
+            <span class="text-slate-500">Gateway Status:</span>
+            <p class="text-emerald-400 font-bold flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              OPERATIONAL
+            </p>
+          </div>
+          <div>
+            <span class="text-slate-500">Active Wind Mission:</span>
+            <p class="text-slate-200 font-bold">OCEANSAT-3 OSCAT (12.5 km)</p>
+          </div>
+          <div>
+            <span class="text-slate-500">Active Current Mission:</span>
+            <p class="text-slate-200 font-bold">SARAL-AltiKa (OGDR Assimilation)</p>
+          </div>
+          <div>
+            <span class="text-slate-500">Coverage Zone:</span>
+            <p id="mosdac-zone-text" class="text-slate-200 font-bold">Indian Exclusive Economic Zone</p>
+          </div>
+        </div>
+
+        <!-- Satellite Mission Catalog Cards -->
+        <div class="space-y-3">
+          <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Active MOSDAC Satellite Missions & Sensors</h3>
+          <div id="mosdac-datasets-grid" class="grid grid-cols-2 gap-4">
+            <!-- Populated dynamically via JS -->
+          </div>
+        </div>
+
+        <!-- Live Ingested Telemetry Box -->
+        <div class="bg-slate-900/60 p-4 rounded-lg border border-slate-800 space-y-2 text-xs">
+          <div class="flex justify-between items-center border-b border-slate-800 pb-1 text-slate-400 font-bold">
+            <span>LIVE INGESTED TELEMETRY STREAM</span>
+            <span class="text-cyan-400">NEAR REAL-TIME (NRT)</span>
+          </div>
+          <pre id="mosdac-telemetry-preview" class="text-[11px] text-emerald-300 max-h-48 overflow-y-auto custom-scroll bg-slate-950 p-3 rounded"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 2: MARINE CADASTRE AIS STANDARD DATASET VIEWER -->
+    <div id="view-marinecadastre" class="hidden flex-1 flex-col p-6 bg-slate-950 overflow-y-auto custom-scroll font-mono">
+      <div class="max-w-6xl mx-auto w-full space-y-5">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-lg font-bold text-cyan-400 flex items-center gap-2">
+              <i data-lucide="compass" class="w-5 h-5"></i>
+              MARINE CADASTRE AIS STANDARD DATASET
+            </h2>
+            <p class="text-xs text-slate-400">Schema compliant with official marinecadastre.gov/accessais standard</p>
+          </div>
+          <button id="btn-download-mc-csv" class="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-bold transition">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>DOWNLOAD AIS CSV</span>
+          </button>
+        </div>
+
+        <!-- Schema Description -->
+        <div class="grid grid-cols-4 gap-3 text-xs bg-slate-900/80 p-4 rounded-lg border border-slate-800">
+          <div>
+            <span class="text-slate-500">Primary Key:</span>
+            <p class="text-slate-200">MMSI + BaseDateTime</p>
+          </div>
+          <div>
+            <span class="text-slate-500">Kinematics:</span>
+            <p class="text-slate-200">SOG (kts), COG (°), Heading (°)</p>
+          </div>
+          <div>
+            <span class="text-slate-500">Vessel Codes:</span>
+            <p class="text-slate-200">Type 81 (Tanker), Type 70 (Cargo)</p>
+          </div>
+          <div>
+            <span class="text-slate-500">Dimensions:</span>
+            <p class="text-slate-200">Length, Width, Static Draft (m)</p>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="border border-slate-800 rounded-lg overflow-hidden bg-slate-900/60">
+          <div class="overflow-x-auto">
+            <table class="w-full text-[11px] text-left text-slate-300">
+              <thead class="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+                <tr>
+                  <th class="py-2.5 px-3">MMSI</th>
+                  <th class="py-2.5 px-3">BaseDateTime (UTC)</th>
+                  <th class="py-2.5 px-3">LAT</th>
+                  <th class="py-2.5 px-3">LON</th>
+                  <th class="py-2.5 px-3">SOG</th>
+                  <th class="py-2.5 px-3">COG</th>
+                  <th class="py-2.5 px-3">VesselName</th>
+                  <th class="py-2.5 px-3">IMO</th>
+                  <th class="py-2.5 px-3">Type</th>
+                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3">L × W × D</th>
+                </tr>
+              </thead>
+              <tbody id="marinecadastre-table-body" class="divide-y divide-slate-800/60">
+                <!-- Injected dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: ZENODO SENTINEL-1 SAR DATASET VIEWER -->
+    <div id="view-zenodo" class="hidden flex-1 flex-col p-6 bg-slate-950 overflow-y-auto custom-scroll font-mono">
+      <div class="max-w-6xl mx-auto w-full space-y-5">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-lg font-bold text-amber-400 flex items-center gap-2">
+              <i data-lucide="layers" class="w-5 h-5"></i>
+              ZENODO SENTINEL-1 SAR OIL SPILL BENCHMARK DATASET
+            </h2>
+            <p class="text-xs text-slate-400">Zenodo Dataset Reference: DOI 10.5281/zenodo.3842416 (C-SAR IW GRDH Mode)</p>
+          </div>
+          <button id="btn-download-sar-geojson" class="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold transition">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>DOWNLOAD SAR GEOJSON</span>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <!-- Granule Metadata -->
+          <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-800 space-y-2 text-xs">
+            <h3 class="font-bold text-slate-200 border-b border-slate-800 pb-1">SCENE METADATA</h3>
+            <div class="space-y-1 text-slate-300">
+              <p><span class="text-slate-500">Satellite:</span> Sentinel-1A C-SAR (5.405 GHz)</p>
+              <p><span class="text-slate-500">Mode:</span> Interferometric Wide (IW) GRDH</p>
+              <p><span class="text-slate-500">Polarization:</span> VV + VH Dual-Pol</p>
+              <p><span class="text-slate-500">Resolution:</span> 10.0m Pixel Spacing</p>
+              <p><span class="text-slate-500">Incidence Angle:</span> 34.8°</p>
+              <p><span class="text-slate-500">Acquisition:</span> 2026-09-29T10:00:00Z</p>
+            </div>
+          </div>
+
+          <!-- Semantic Mask Classes -->
+          <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-800 space-y-2 text-xs">
+            <h3 class="font-bold text-slate-200 border-b border-slate-800 pb-1">SEGMENTATION LABELS</h3>
+            <div class="space-y-1 text-slate-300">
+              <p class="text-red-400 font-bold">• Class 1: Oil Spill (Anthropic crude slick)</p>
+              <p class="text-amber-400 font-bold">• Class 2: Look-alike (Algal bloom / Low-wind)</p>
+              <p class="text-cyan-400 font-bold">• Class 3: Ship / Marine Platform target</p>
+              <p class="text-slate-400">• Class 0: Sea Background / Water surface</p>
+            </div>
+          </div>
+
+          <!-- Training Benchmark Specs -->
+          <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-800 space-y-2 text-xs">
+            <h3 class="font-bold text-slate-200 border-b border-slate-800 pb-1">U-NET ARCHITECTURE</h3>
+            <div class="space-y-1 text-slate-300">
+              <p><span class="text-slate-500">Backbone:</span> ResNet-34 Feature Pyramid</p>
+              <p><span class="text-slate-500">Mean IoU:</span> 0.884 (Oil Spill class)</p>
+              <p><span class="text-slate-500">Inference Time:</span> 42 ms / Tile</p>
+              <p><span class="text-slate-500">False Alarm Rate:</span> 2.1%</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw GeoJSON Preview Box -->
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+          <div class="flex justify-between text-xs text-slate-400 border-b border-slate-800 pb-1">
+            <span>ZENODO SENTINEL-1 SAR GEOJSON PAYLOAD</span>
+            <span>POLYGON COORDINATES</span>
+          </div>
+          <pre id="sar-geojson-preview" class="text-[11px] text-cyan-300 max-h-64 overflow-y-auto custom-scroll bg-slate-900/50 p-3 rounded"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- 3. IMPORT MARINE CADASTRE AIS MODAL                                  -->
+  <!-- ==================================================================== -->
+  <div id="modal-import-ais" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col">
+      <div class="p-4 border-b border-slate-800 bg-slate-950 flex justify-between items-center font-mono">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="upload" class="w-5 h-5 text-cyan-400"></i>
+          <h2 class="font-bold text-sm text-slate-100">IMPORT MARINE CADASTRE AIS DATA</h2>
+        </div>
+        <button id="btn-close-import-modal" class="text-slate-400 hover:text-white cursor-pointer">✕</button>
+      </div>
+
+      <div class="p-5 space-y-4 font-mono text-xs text-slate-300">
+        <p class="text-slate-400">
+          Paste raw CSV records in official Marine Cadastre format (<span class="text-cyan-400">MMSI,BaseDateTime,LAT,LON,SOG,COG,Heading,VesselName,IMO,VesselType...</span>)
+          or load the pre-populated sample benchmark.
+        </p>
+
+        <textarea id="ais-import-textarea" rows="8" class="w-full bg-slate-950 border border-slate-800 rounded p-3 text-[11px] text-cyan-300 font-mono focus:border-cyan-500 focus:outline-none custom-scroll" placeholder="Paste Marine Cadastre CSV text here..."></textarea>
+
+        <div class="flex justify-between items-center">
+          <button id="btn-load-sample-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition cursor-pointer">
+            Load Default Marine Cadastre Sample
+          </button>
+          <div class="space-x-2">
+            <button id="btn-cancel-import" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded cursor-pointer">
+              Cancel
+            </button>
+            <button id="btn-submit-ais-import" class="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded cursor-pointer">
+              Parse & Run Correlation
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- 4. MARPOL EVIDENCE DOSSIER MODAL                                     -->
+  <!-- ==================================================================== -->
+  <div id="modal-dossier" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      
+      <div class="p-4 border-b border-slate-800 bg-slate-950 flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="file-text" class="w-5 h-5 text-red-400"></i>
+          <div>
+            <h2 class="font-mono font-bold text-base text-slate-100">
+              MARPOL ANNEX I VIOLATION EVIDENCE DOSSIER
+            </h2>
+            <p class="text-xs font-mono text-slate-400">
+              LEGAL FORENSIC REPORT // OFFICIAL REFERRAL
+            </p>
+          </div>
+        </div>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-white text-lg font-mono px-2 py-1 cursor-pointer">
+          ✕
+        </button>
+      </div>
+
+      <div class="p-6 overflow-y-auto custom-scroll space-y-5 font-mono text-xs text-slate-300">
+        <div class="grid grid-cols-2 gap-3 bg-slate-950 p-4 rounded-lg border border-slate-800">
+          <div>
+            <span class="text-slate-500 font-bold">REPORTING AUTHORITY:</span>
+            <p class="text-slate-200">Directorate General of Shipping / Indian Coast Guard</p>
+          </div>
+          <div>
+            <span class="text-slate-500 font-bold">FILING DATE:</span>
+            <p id="dossier-date" class="text-slate-200">2026-09-29T10:30:00Z</p>
+          </div>
+          <div>
+            <span class="text-slate-500 font-bold">SATELLITE EVIDENCE:</span>
+            <p id="dossier-sat" class="text-cyan-400">Sentinel-1C Synthetic Aperture Radar (10m Resolution)</p>
+          </div>
+          <div>
+            <span class="text-slate-500 font-bold">SLICK ESTIMATE:</span>
+            <p id="dossier-slick-est" class="text-amber-400">14.82 km² / ~850 Barrels Heavy Crude</p>
+          </div>
+        </div>
+
+        <div class="border border-red-500/40 bg-red-950/20 p-4 rounded-lg space-y-3">
+          <div class="flex justify-between items-center border-b border-red-500/30 pb-2">
+            <span class="text-red-400 font-bold text-sm">PRIMARY ACCUSED VESSEL</span>
+            <span id="dossier-score-badge" class="bg-red-500/30 text-red-300 px-2 py-0.5 rounded font-bold">
+              100% GUILT PROBABILITY MATCH
+            </span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <span class="text-slate-500">Vessel Name:</span>
+              <p id="dossier-vessel-name" class="font-bold text-slate-100">MT ARABIAN TITAN</p>
+            </div>
+            <div>
+              <span class="text-slate-500">IMO / MMSI:</span>
+              <p id="dossier-vessel-imo" class="text-slate-200">9384812 / 636018244</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Flag State:</span>
+              <p id="dossier-vessel-flag" class="text-slate-200">Liberia (Flag of Convenience)</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Type:</span>
+              <p id="dossier-vessel-type" class="text-slate-200">Crude Oil Tanker (VLCC)</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Deadweight:</span>
+              <p id="dossier-vessel-dwt" class="text-slate-200">305,000 DWT</p>
+            </div>
+            <div>
+              <span class="text-slate-500">Cargo:</span>
+              <p id="dossier-vessel-cargo" class="text-slate-200">Heavy Crude Oil</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <h4 class="font-bold text-slate-200 border-b border-slate-800 pb-1">
+            OCEANOGRAPHIC HINDCAST & AIS KINEMATIC EVIDENCE
+          </h4>
+          <ul id="dossier-evidence-list" class="space-y-1.5 list-disc pl-4 text-slate-300">
+            <li>
+              <strong>Hydrodynamic Reverse Drift:</strong> Slick centroid displaced under hydrodynamic vectors over simulation window.
+            </li>
+            <li>
+              <strong>Kinematic Intercept:</strong> Vessel trajectory crossed within 0.12 km of computed spill origin.
+            </li>
+            <li>
+              <strong>AIS Blackout Anomaly:</strong> Transponder was disabled for 45 min during transit through the discharge point.
+            </li>
+          </ul>
+        </div>
+
+        <div class="p-3 bg-red-950/40 border border-red-500/30 rounded text-red-300 text-[11px]">
+          <strong>LEGAL RECOMMENDATION:</strong> Issue Form B Notice of Violation under MARPOL 73/78 Annex I Regulation 11. Request Port State Control (PSC) detention, bilge tank inspection, and physical oil fingerprinting sampling.
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-800 bg-slate-950 flex justify-between items-center">
+        <button id="btn-print-report" class="flex items-center space-x-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-mono text-xs border border-slate-700 transition cursor-pointer">
+          <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+          <span>PRINT / SAVE PDF</span>
+        </button>
+        <button id="btn-modal-dispatch" class="flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white rounded font-mono text-xs font-bold shadow-lg shadow-red-950 transition cursor-pointer">
+          <i data-lucide="siren" class="w-3.5 h-3.5"></i>
+          <span>TRANSMIT TO COAST GUARD HQ</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- 5. INDIAN COAST GUARD TACTICAL INTERCEPT DISPATCH MODAL               -->
+  <!-- ==================================================================== -->
+  <div id="modal-dispatch-icg" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-red-500/80 w-full max-w-2xl rounded-xl shadow-2xl shadow-red-950 overflow-hidden flex flex-col font-mono">
+      
+      <!-- Modal Header -->
+      <div class="p-4 bg-red-950/80 border-b border-red-500/40 flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+          <span class="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+          <h2 class="font-bold text-sm text-red-100 tracking-wider">
+            FLASH OPERATIONAL ORDER: MARITIME INTERCEPT DIRECTIVE
+          </h2>
+        </div>
+        <button id="btn-close-dispatch-modal" class="text-slate-400 hover:text-white text-lg px-2 cursor-pointer">✕</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 space-y-4 text-xs text-slate-300">
+        <div class="grid grid-cols-2 gap-3 bg-slate-950 p-3 rounded-lg border border-slate-800">
+          <div>
+            <span class="text-slate-500">ISSUING COMMAND:</span>
+            <p class="text-slate-200 font-bold">MRCC Mumbai / Indian Coast Guard HQ</p>
+          </div>
+          <div>
+            <span class="text-slate-500">PRIORITY RATING:</span>
+            <p class="text-red-400 font-bold">FLASH IMMEDIATE (LEVEL 1)</p>
+          </div>
+          <div>
+            <span class="text-slate-500">TARGET VESSEL:</span>
+            <p id="dispatch-target-name" class="text-amber-300 font-bold">MT ARABIAN TITAN</p>
+          </div>
+          <div>
+            <span class="text-slate-500">MMSI / CALLSIGN:</span>
+            <p id="dispatch-target-mmsi" class="text-slate-200">636018244</p>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <span class="text-slate-400 font-bold uppercase text-[11px]">DISPATCHED TACTICAL ASSETS:</span>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div class="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center gap-2">
+              <i data-lucide="navigation" class="w-4 h-4 text-cyan-400"></i>
+              <div>
+                <p class="text-slate-200 font-bold">ICGS SAMUDRA PRAHARI</p>
+                <p class="text-[10px] text-slate-500">Pollution Control Vessel (PCV)</p>
+              </div>
+            </div>
+            <div class="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center gap-2">
+              <i data-lucide="plane" class="w-4 h-4 text-cyan-400"></i>
+              <div>
+                <p class="text-slate-200 font-bold">DORNIER 228 (CG SQUADRON 750)</p>
+                <p class="text-[10px] text-slate-500">SLAR / FLIR Surveillance Pod</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-3 bg-slate-950 rounded border border-slate-800 space-y-1 text-[11px]">
+          <span class="text-slate-400 font-bold">OPERATIONAL DIRECTIVES:</span>
+          <ol class="list-decimal pl-4 space-y-1 text-slate-300">
+            <li>Establish visual and radar contact with suspect vessel in Indian EEZ corridor.</li>
+            <li>Deploy aerial infrared / SLAR pod to capture slick trailing wake.</li>
+            <li>Board vessel upon rendezvous to inspect Oil Record Book (Part I/II) & Oily Water Separator (OWS).</li>
+            <li>Extract physical grab samples from bilge and sea-chest for gas chromatography fingerprinting.</li>
+          </ol>
+        </div>
+
+        <div id="dispatch-success-banner" class="p-2.5 bg-emerald-950/60 border border-emerald-500/50 rounded text-emerald-300 text-[11px] font-bold flex items-center gap-2">
+          <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+          <span>DIRECTIVE TRANSMITTED VIA NAVTEX & COAST GUARD TACTICAL LINK</span>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
+        <button id="btn-ack-dispatch" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-xs transition cursor-pointer">
+          ACKNOWLEDGE & CLOSE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================================== -->
+  <!-- 6. JAVASCRIPT APPLICATION CORE ENGINE                                -->
+  <!-- ==================================================================== -->
+  <script>
+    // State management
+    let currentSpeed = 1.25;
+    let currentDir = 55.0;
+    let windSpeed = 16.5;
+    let windDir = 70.0;
+    let deltaHours = 3.5;
+    let timelineScrub = 4.5;
+    let isPlaying = false;
+    let playInterval = null;
+    let selectedVesselId = "VESSEL-002";
+    let activeScenarioId = "mumbai_high";
+    let isSoundEnabled = true;
+    let isSimulating = false;
+
+    let incidentData = null;
+    let rankedVessels = [];
+    let driftResult = null;
+    let marineCadastreRecords = [];
+    let zenodoSarData = null;
+    let mosdacDatasets = [];
+    let mosdacTelemetry = null;
+
+    let map = null;
+    let mapLayerGroup = null;
+    let bhuvanSatelliteLayer = null;
+    let bhuvanVectorLayer = null;
+    let openTacticalLayer = null;
+    let radarSweepLayer = null;
+
+    // Web Audio Synthesizer (Zero external dependencies)
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playAudioPing(freq = 880, duration = 0.15, type = 'sine') {
+      if (!isSoundEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freq / 2, ctx.currentTime + duration);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      } catch (e) {
+        console.warn("Audio playback blocked", e);
+      }
+    }
+
+    function playAlertSiren() {
+      if (!isSoundEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.linearRampToValueAtTime(950, now + 0.2);
+        osc.frequency.linearRampToValueAtTime(600, now + 0.4);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(now + 0.5);
+      } catch (e) {}
+    }
+
+    function addLiveLog(msg, type = "INFO") {
+      const stream = document.getElementById('hud-event-stream');
+      if (!stream) return;
+      const now = new Date().toISOString().substring(11, 19) + " UTC";
+      const div = document.createElement('div');
+      let color = "text-slate-400";
+      if (type === "CRITICAL" || type === "ALERT") color = "text-red-400 font-bold";
+      else if (type === "SAR" || type === "HINDCAST") color = "text-cyan-400";
+      else if (type === "MOSDAC") color = "text-emerald-400";
+      else if (type === "AIS") color = "text-amber-400";
+
+      div.className = color;
+      div.innerText = `[${now}] [${type}] ${msg}`;
+      stream.prepend(div);
+      if (stream.children.length > 25) {
+        stream.removeChild(stream.lastChild);
+      }
+    }
+
+    function initMap() {
+      map = L.map('tactical-map', {
+        center: [19.16, 72.10],
+        zoom: 11,
+        zoomControl: false,
+        attributionControl: false
+      });
+
+      // 1. ISRO Bhuvan High-Resolution Satellite Map (National Remote Sensing Centre - NRSC / ISRO)
+      bhuvanSatelliteLayer = L.tileLayer.wms('https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms', {
+        layers: 'india3',
+        format: 'image/png',
+        transparent: false,
+        version: '1.1.1',
+        attribution: 'Satellite Imagery © ISRO / NRSC Bhuvan'
+      });
+
+      // 2. ISRO Bhuvan Thematic Vector Map
+      bhuvanVectorLayer = L.tileLayer.wms('https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms', {
+        layers: 'lulc:BR_LULC50K_1112',
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        attribution: 'Vector Geospatial © ISRO Bhuvan'
+      });
+
+      // 3. Open Tactical Nautical Basemap (Zero Commercial Key)
+      openTacticalLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: 'Tactical Base © OpenStreetMap & ISRO Geospatial'
+      }).addTo(map);
+
+      // Layer Switcher Control
+      const baseMaps = {
+        "Tactical Nautical Chart": openTacticalLayer,
+        "ISRO Bhuvan Satellite Base": bhuvanSatelliteLayer,
+        "ISRO Bhuvan Thematic Vector": bhuvanVectorLayer
+      };
+
+      L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      mapLayerGroup = L.layerGroup().addTo(map);
+    }
+
+    function calculateLocalDrift(detLat, detLon, curSpd, curDir, wSpd, wDir, deltaH, leeway = 0.03) {
+      const radC = (curDir * Math.PI) / 180;
+      const uC = curSpd * Math.sin(radC);
+      const vC = curSpd * Math.cos(radC);
+
+      const radW = (wDir * Math.PI) / 180;
+      const uW = wSpd * leeway * Math.sin(radW);
+      const vW = wSpd * leeway * Math.cos(radW);
+
+      const uTotal = uC + uW;
+      const vTotal = vC + vW;
+
+      const netSpeedKmh = Math.hypot(uTotal, vTotal) * 1.852;
+      const netDirDeg = ((Math.atan2(uTotal, vTotal) * 180) / Math.PI + 360) % 360;
+
+      const totalDxKm = uTotal * deltaH * 1.852;
+      const totalDyKm = vTotal * deltaH * 1.852;
+      const totalDistKm = Math.hypot(totalDxKm, totalDyKm);
+
+      const meanLatRad = (detLat * Math.PI) / 180;
+      const kmPerLat = 111.139;
+      const kmPerLon = 111.139 * Math.cos(meanLatRad);
+
+      const originLat = detLat - totalDyKm / kmPerLat;
+      const originLon = detLon - totalDxKm / kmPerLon;
+
+      const steps = 10;
+      const path = [];
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const tOffset = frac * deltaH;
+        path.push({
+          step: i,
+          lat: detLat - (vTotal * tOffset * 1.852) / kmPerLat,
+          lon: detLon - (uTotal * tOffset * 1.852) / kmPerLon
+        });
+      }
+
+      return {
+        origin: { lat: originLat, lon: originLon },
+        totalDistKm,
+        netSpeedKmh,
+        netDirDeg,
+        path
+      };
+    }
+
+    function updateMap() {
+      if (!mapLayerGroup || !incidentData) return;
+      mapLayerGroup.clearLayers();
+
+      const spillMeta = incidentData.spill_metadata;
+      const detCentroid = spillMeta.detected_centroid;
+
+      // 1. Draw Oil Spill Polygon Mask
+      if (spillMeta.polygon_geojson && spillMeta.polygon_geojson.coordinates) {
+        const coords = spillMeta.polygon_geojson.coordinates[0].map(c => [c[1], c[0]]);
+        L.polygon(coords, {
+          color: '#ef4444',
+          weight: 2,
+          fillColor: '#dc2626',
+          fillOpacity: 0.55,
+          dashArray: isSimulating ? '4, 4' : null
+        }).addTo(mapLayerGroup).bindPopup(`
+          <div class="text-xs font-mono">
+            <strong class="text-red-600">🚨 OIL SLICK DETECTION (SAR MASK)</strong><br/>
+            <span>Area: ${spillMeta.estimated_area_sq_km} km²</span><br/>
+            <span>Confidence: ${(spillMeta.sar_confidence_score * 100).toFixed(1)}%</span><br/>
+            <span>Volume: ${spillMeta.estimated_volume_bbls} Barrels</span>
+          </div>
+        `);
+      }
+
+      // 2. Draw Detected Centroid Marker
+      const detectedMarker = L.circleMarker([detCentroid.lat, detCentroid.lon], {
+        radius: 7,
+        fillColor: '#ef4444',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(mapLayerGroup);
+      detectedMarker.bindPopup(`<strong class="text-xs font-mono">SAR Centroid (${detCentroid.lat.toFixed(4)}°N, ${detCentroid.lon.toFixed(4)}°E)</strong>`);
+
+      // 3. Draw Hindcast Trajectory & Origin Marker
+      if (driftResult) {
+        const origin = driftResult.origin;
+        
+        // Origin Marker (T0)
+        const originMarker = L.circleMarker([origin.lat, origin.lon], {
+          radius: 9,
+          fillColor: '#06b6d4',
+          color: '#ffffff',
+          weight: 2.5,
+          fillOpacity: 1
+        }).addTo(mapLayerGroup);
+
+        originMarker.bindPopup(`
+          <div class="text-xs font-mono">
+            <strong class="text-cyan-400">🌊 ESTIMATED DISCHARGE ORIGIN (T₀)</strong><br/>
+            <span>Coords: ${origin.lat.toFixed(4)}°N, ${origin.lon.toFixed(4)}°E</span><br/>
+            <span>Drift Displacement: ${driftResult.totalDistKm.toFixed(2)} km</span><br/>
+            <span>Velocity: ${driftResult.netSpeedKmh.toFixed(2)} km/h @ ${driftResult.netDirDeg.toFixed(1)}°</span>
+          </div>
+        `);
+
+        // Draw dotted vector line from Origin to Detection Centroid
+        if (driftResult.path && driftResult.path.length > 0) {
+          const latlngs = driftResult.path.map(p => [p.lat, p.lon]);
+          L.polyline(latlngs, {
+            color: '#06b6d4',
+            weight: 3,
+            dashArray: '5, 8',
+            opacity: 0.9
+          }).addTo(mapLayerGroup);
+        }
+      }
+
+      // 4. Draw Vessel Tracks and Current Positions based on Timeline Slider
+      const maxTimeIndex = Math.min(10, Math.floor((timelineScrub / 4.5) * 10));
+
+      rankedVessels.forEach(vessel => {
+        const isGuilty = vessel.guilt_probability_score >= 80;
+        const color = isGuilty ? '#ef4444' : (vessel.guilt_probability_score > 30 ? '#f59e0b' : '#3b82f6');
+        const track = vessel.track || [];
+
+        if (track.length === 0) return;
+
+        // Draw full historical path
+        const fullLatLngs = track.map(p => [p.lat, p.lon || p.lng]);
+        L.polyline(fullLatLngs, {
+          color: color,
+          weight: isGuilty ? 2.5 : 1.5,
+          opacity: 0.65
+        }).addTo(mapLayerGroup);
+
+        // Draw current animated position
+        const currentPt = track[Math.min(maxTimeIndex, track.length - 1)];
+        if (currentPt) {
+          const currentPos = [currentPt.lat, currentPt.lon || currentPt.lng];
+          const vesselMarker = L.circleMarker(currentPos, {
+            radius: isGuilty ? 8 : 5,
+            fillColor: color,
+            color: '#ffffff',
+            weight: 2,
+            fillOpacity: 1
+          }).addTo(mapLayerGroup);
+
+          vesselMarker.bindPopup(`
+            <div class="text-xs font-mono">
+              <strong style="color:${color}">${vessel.vessel_name}</strong><br/>
+              <span>Type: ${vessel.type}</span><br/>
+              <span>Guilt Probability: <strong>${vessel.guilt_probability_score}%</strong></span><br/>
+              <span>SOG: ${currentPt.sog} kts | COG: ${currentPt.cog}°</span><br/>
+              <span>Time: ${currentPt.timestamp || currentPt.time}</span>
+            </div>
+          `);
+
+          // Highlight AIS gap anomaly zone if present
+          if (vessel.ais_gap_detected && vessel.gap_location_approx) {
+            const gapLoc = Array.isArray(vessel.gap_location_approx) 
+              ? [vessel.gap_location_approx[1], vessel.gap_location_approx[0]]
+              : [vessel.gap_location_approx.lat, vessel.gap_location_approx.lon];
+
+            L.circle(gapLoc, {
+              radius: 1200,
+              color: '#ef4444',
+              fillColor: '#ef4444',
+              fillOpacity: 0.25,
+              weight: 1.5,
+              dashArray: '3, 6'
+            }).addTo(mapLayerGroup).bindPopup(`
+              <div class="text-xs font-mono text-red-400 font-bold">
+                ⚠️ AIS TRANSPONDER BLACKOUT ZONE<br/>
+                Duration: ${vessel.gap_duration_minutes} min at Spill Origin
+              </div>
+            `);
+          }
+        }
+      });
+    }
+
+    function renderVesselCards() {
+      const container = document.getElementById('vessel-cards-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      rankedVessels.forEach(v => {
+        const isGuilty = v.guilt_probability_score >= 80;
+        const card = document.createElement('div');
+        card.className = `p-3.5 rounded-lg border transition cursor-pointer font-mono text-xs ${
+          isGuilty 
+            ? 'bg-red-950/30 border-red-500/50 shadow-lg shadow-red-950/40' 
+            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-2">
+            <div>
+              <span class="font-bold text-slate-100 ${isGuilty ? 'text-red-400' : ''}">${v.vessel_name}</span>
+              <p class="text-[10px] text-slate-400">MMSI: ${v.mmsi} | IMO: ${v.imo || 'N/A'}</p>
+            </div>
+            <div class="text-right">
+              <span class="px-2 py-0.5 rounded font-bold text-[10px] ${
+                isGuilty ? 'bg-red-500/30 text-red-300 border border-red-500/40' : 'bg-slate-800 text-slate-400'
+              }">${v.guilt_probability_score}% MATCH</span>
+              <p class="text-[9px] text-slate-500 uppercase mt-0.5">${v.classification}</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-1 text-[11px] text-slate-400 border-t border-slate-800/80 pt-2 mb-2">
+            <div>Type: <span class="text-slate-200 font-semibold">${v.type}</span></div>
+            <div>Flag: <span class="text-slate-200 font-semibold">${v.flag}</span></div>
+            <div>CPA Dist: <span class="text-slate-200 font-semibold">${v.metrics?.distance_at_spill_km ?? '0.12'} km</span></div>
+            <div>Heading Dev: <span class="text-slate-200 font-semibold">${v.metrics?.heading_deviation_deg ?? '0.0'}°</span></div>
+          </div>
+
+          ${v.ais_gap_detected ? `
+            <div class="p-1.5 rounded bg-red-900/30 border border-red-500/30 text-red-300 text-[10px] flex items-center gap-1.5 font-semibold">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>
+              <span>AIS BLACKOUT: ${v.gap_duration_minutes} min at Origin</span>
+            </div>
+          ` : `
+            <div class="text-[10px] text-emerald-400 flex items-center gap-1">
+              <i data-lucide="check" class="w-3 h-3"></i>
+              <span>Continuous Transponder Signal Logged</span>
+            </div>
+          `}
+        `;
+
+        card.addEventListener('click', () => {
+          selectedVesselId = v.vessel_id;
+          openDossierModal(v);
+        });
+
+        container.appendChild(card);
+      });
+
+      document.getElementById('vessel-count-badge').innerText = `${rankedVessels.length} TRACKED`;
+      lucide.createIcons();
+    }
+
+    function openDossierModal(vessel) {
+      if (!vessel) {
+        vessel = rankedVessels[0];
+      }
+      if (!vessel) return;
+
+      const modal = document.getElementById('modal-dossier');
+      document.getElementById('dossier-vessel-name').innerText = vessel.vessel_name;
+      document.getElementById('dossier-vessel-imo').innerText = `${vessel.imo || 'N/A'} / ${vessel.mmsi}`;
+      document.getElementById('dossier-vessel-flag').innerText = vessel.flag;
+      document.getElementById('dossier-vessel-type').innerText = vessel.type;
+      document.getElementById('dossier-score-badge').innerText = `${vessel.guilt_probability_score}% GUILT PROBABILITY MATCH`;
+      
+      const isGuilty = vessel.guilt_probability_score >= 80;
+      document.getElementById('dossier-score-badge').className = isGuilty 
+        ? 'bg-red-500/30 text-red-300 px-2 py-0.5 rounded font-bold' 
+        : 'bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-bold';
+
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    async function loadScenario(scenarioId) {
+      activeScenarioId = scenarioId;
+      addLiveLog(`Loading scenario dataset: ${scenarioId}...`, "SYSTEM");
+
+      try {
+        const res = await fetch('/api/v1/incidents/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario_id: scenarioId })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          incidentData = data;
+          rankedVessels = data.analysis.ranked_vessels;
+          driftResult = {
+            origin: data.analysis.drift_origin,
+            totalDistKm: data.analysis.drift_analysis.total_drift_distance_km,
+            netSpeedKmh: data.analysis.drift_analysis.drift_velocity_kmh,
+            netDirDeg: data.analysis.drift_analysis.drift_direction_deg,
+            path: data.analysis.drift_analysis.trajectory_path
+          };
+
+          const spill = data.spill_metadata;
+          const env = data.environmental_vectors;
+
+          // Update SAR Panel
+          document.getElementById('sar-incident-id').innerText = spill.incident_id;
+          document.getElementById('sar-confidence').innerText = `${(spill.sar_confidence_score * 100).toFixed(1)}% (U-Net)`;
+          document.getElementById('sar-area').innerText = `${spill.estimated_area_sq_km} km²`;
+          document.getElementById('sar-volume').innerText = `${spill.estimated_volume_bbls} bbls`;
+          document.getElementById('sar-coords').innerText = `${spill.detected_centroid.lat.toFixed(4)}°N, ${spill.detected_centroid.lon.toFixed(4)}°E`;
+
+          // Update Sliders
+          currentSpeed = env.current.speed_knots;
+          currentDir = env.current.direction_deg;
+          windSpeed = env.wind.speed_knots;
+          windDir = env.wind.direction_deg;
+
+          document.getElementById('slider-current-speed').value = currentSpeed;
+          document.getElementById('slider-current-dir').value = currentDir;
+          document.getElementById('slider-wind-speed').value = windSpeed;
+          document.getElementById('slider-wind-dir').value = windDir;
+
+          document.getElementById('current-val-label').innerText = `${currentSpeed} kts @ ${currentDir}°`;
+          document.getElementById('current-spd-text').innerText = `${currentSpeed} knots`;
+          document.getElementById('current-dir-text').innerText = `${currentDir}°`;
+          document.getElementById('wind-val-label').innerText = `${windSpeed} kts @ ${windDir}°`;
+          document.getElementById('wind-spd-text').innerText = `${windSpeed} knots`;
+          document.getElementById('wind-dir-text').innerText = `${windDir}°`;
+
+          document.getElementById('origin-coord-text').innerText = `${driftResult.origin.lat.toFixed(4)}°N, ${driftResult.origin.lon.toFixed(4)}°E`;
+          document.getElementById('origin-dist-text').innerText = `${driftResult.totalDistKm.toFixed(2)} km`;
+          document.getElementById('origin-vector-text').innerText = `${driftResult.netSpeedKmh.toFixed(2)} km/h @ ${driftResult.netDirDeg.toFixed(1)}°`;
+
+          // Recenter map
+          map.setView([spill.detected_centroid.lat, spill.detected_centroid.lon], 11);
+          
+          // Update HUD
+          const topSuspect = rankedVessels[0];
+          document.getElementById('hud-alert-title').innerText = `POLLUTER: ${topSuspect.vessel_name}`;
+          document.getElementById('hud-alert-desc').innerText = `${topSuspect.guilt_probability_score}% guilt correlation. Blackout duration: ${topSuspect.gap_duration_minutes} min at origin.`;
+          document.getElementById('ticker-message').innerText = `${spill.satellite_sensor} Slick (${spill.estimated_area_sq_km} km²) | Primary Suspect: ${topSuspect.vessel_name} (${topSuspect.guilt_probability_score}% Match)`;
+
+          addLiveLog(`Scenario ${scenarioId} loaded successfully. Centered on ${spill.detected_centroid.lat}°N, ${spill.detected_centroid.lon}°E.`, "MOSDAC");
+          playAudioPing(520, 0.2);
+        }
+      } catch (err) {
+        console.error("Scenario load failed", err);
+      }
+
+      renderVesselCards();
+      updateMap();
+    }
+
+    // Step-by-Step Realistic Real-Time Detection Simulation Pass
+    async function runRealtimeSimulationPass() {
+      if (isSimulating) return;
+      isSimulating = true;
+
+      const simHud = document.getElementById('sim-stepper-hud');
+      const stepText = document.getElementById('sim-step-text');
+      simHud.classList.remove('hidden');
+
+      const topSuspect = rankedVessels[0] || { vessel_name: "MT ARABIAN TITAN", guilt_probability_score: 100, gap_duration_minutes: 45 };
+      const spill = incidentData ? incidentData.spill_metadata : { estimated_area_sq_km: 14.82 };
+
+      // Phase 1: Satellite Ingestion
+      stepText.innerText = "📡 PHASE 1/5: INGESTING SENTINEL-1C C-SAR SATELLITE PASS...";
+      addLiveLog("Sentinel-1C C-SAR swath acquisition ingested (10m resolution, VV+VH).", "SAR");
+      playAudioPing(700, 0.25, 'sine');
+      await new Promise(r => setTimeout(r, 1800));
+
+      // Phase 2: U-Net Segmentation
+      stepText.innerText = `🛰️ PHASE 2/5: EXECUTING U-NET SEGMENTATION (${spill.estimated_area_sq_km} km² SLICK DETECTED)...`;
+      addLiveLog(`Dark patch segmented: ${spill.estimated_area_sq_km} km² crude oil signature (Confidence: 96.2%).`, "SAR");
+      playAudioPing(900, 0.2, 'triangle');
+      updateMap();
+      await new Promise(r => setTimeout(r, 1800));
+
+      // Phase 3: MOSDAC Hydrodynamic Drift
+      stepText.innerText = "🌊 PHASE 3/5: ASSIMILATING ISRO MOSDAC HYDRODYNAMIC DRIFT VECTORS...";
+      addLiveLog(`Oceansat-3 OSCAT (16.5 kts) & SARAL-AltiKa (1.25 kts) assimilated. Computing reverse drift...`, "MOSDAC");
+      playAudioPing(600, 0.3, 'sine');
+      await new Promise(r => setTimeout(r, 1800));
+
+      // Phase 4: AIS Anomaly Correlation
+      stepText.innerText = `🚢 PHASE 4/5: CORRELATING AIS DATA — ${topSuspect.vessel_name} BLACKOUT FLAGGED!`;
+      addLiveLog(`AIS blackout gap detected: ${topSuspect.vessel_name} disabled transponder for ${topSuspect.gap_duration_minutes} min at discharge origin.`, "AIS");
+      playAlertSiren();
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Phase 5: Critical Violation Alert
+      stepText.innerText = `🚨 PHASE 5/5: MARPOL VIOLATION CONFIRMED (${topSuspect.guilt_probability_score}% MATCH)!`;
+      addLiveLog(`🚨 CRITICAL MARPOL ANNEX I ALERT: ${topSuspect.vessel_name} matched with ${topSuspect.guilt_probability_score}% confidence.`, "CRITICAL");
+      playAlertSiren();
+      await new Promise(r => setTimeout(r, 1000));
+
+      simHud.classList.add('hidden');
+      isSimulating = false;
+
+      // Auto-open evidence dossier modal
+      openDossierModal(topSuspect);
+    }
+
+    async function triggerSimulation() {
+      document.getElementById('current-val-label').innerText = `${currentSpeed} kts @ ${currentDir}°`;
+      document.getElementById('current-spd-text').innerText = `${currentSpeed} knots`;
+      document.getElementById('current-dir-text').innerText = `${currentDir}°`;
+
+      document.getElementById('wind-val-label').innerText = `${windSpeed} kts @ ${windDir}°`;
+      document.getElementById('wind-spd-text').innerText = `${windSpeed} knots`;
+      document.getElementById('wind-dir-text').innerText = `${windDir}°`;
+
+      try {
+        const res = await fetch('/api/v1/simulate-drift', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            delta_hours: deltaHours,
+            current_speed_knots: currentSpeed,
+            current_dir_deg: currentDir,
+            wind_speed_knots: windSpeed,
+            wind_dir_deg: windDir,
+            leeway_factor: 0.03
+          })
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          driftResult = {
+            origin: json.calculated_origin,
+            totalDistKm: json.drift_summary.total_drift_distance_km,
+            netSpeedKmh: json.drift_summary.drift_velocity_kmh,
+            netDirDeg: json.drift_summary.drift_direction_deg,
+            path: json.drift_summary.trajectory_path
+          };
+          rankedVessels = json.ranked_vessels;
+        }
+      } catch (err) {}
+
+      if (driftResult) {
+        document.getElementById('origin-coord-text').innerText = `${driftResult.origin.lat.toFixed(4)}°N, ${driftResult.origin.lon.toFixed(4)}°E`;
+        document.getElementById('origin-dist-text').innerText = `${driftResult.totalDistKm.toFixed(2)} km`;
+        document.getElementById('origin-vector-text').innerText = `${driftResult.netSpeedKmh.toFixed(2)} km/h @ ${driftResult.netDirDeg.toFixed(1)}°`;
+      }
+
+      renderVesselCards();
+      updateMap();
+    }
+
+    const DEFAULT_MOSDAC_DATASETS = [
+      {
+        mission: "OCEANSAT-3",
+        dataset_id: "OS3_OSCAT_L2B_WIND",
+        instrument: "OSCAT (Ku-band Scatterometer)",
+        parameter: "Ocean Surface Wind Vector (Speed & Direction)",
+        spatial_resolution: "12.5 km grid",
+        temporal_resolution: "Daily / Swath pass",
+        latency: "Near Real Time (NRT < 3 hours)",
+        format: "HDF5 / NetCDF-4 / GeoTIFF",
+        provider: "Space Applications Centre (SAC), ISRO",
+        status: "OPERATIONAL"
+      },
+      {
+        mission: "SARAL-AltiKa",
+        dataset_id: "SARAL_ALTIKA_OGDR",
+        instrument: "Ka-band Radar Altimeter (AltiKa)",
+        parameter: "Ocean Surface Geostrophic Currents & Significant Wave Height (SWH)",
+        spatial_resolution: "Along-track 7 km",
+        temporal_resolution: "35-day exact repeat cycle (NRT OGDR)",
+        latency: "Near Real Time (< 5 hours)",
+        format: "NetCDF-3 / BUFR",
+        provider: "ISRO / CNES",
+        status: "OPERATIONAL"
+      },
+      {
+        mission: "SCATSAT-1",
+        dataset_id: "SCAT1_L2B_HIGHRES",
+        instrument: "Ku-band Scatterometer",
+        parameter: "Atmospheric Surface Leeway Vectors",
+        spatial_resolution: "6.25 km / 25 km",
+        temporal_resolution: "Daily Global Coverage",
+        latency: "Archived & NRT",
+        format: "HDF5",
+        provider: "ISRO",
+        status: "OPERATIONAL"
+      },
+      {
+        mission: "INSAT-3DR",
+        dataset_id: "INSAT3DR_IMAGER_WIND",
+        instrument: "Multi-Spectral Imager (VIS + IR)",
+        parameter: "Upper / Low-level Atmospheric Motion Vectors (AMV)",
+        spatial_resolution: "4 km (Thermal IR) / 1 km (VIS)",
+        temporal_resolution: "Half-hourly (30 min)",
+        latency: "Real-time (< 30 min)",
+        format: "HDF5 / WMS",
+        provider: "MOSDAC / IMD",
+        status: "OPERATIONAL"
+      }
+    ];
+
+    const DEFAULT_MOSDAC_TELEMETRY = {
+      source: "ISRO MOSDAC (Space Applications Centre, Ahmedabad)",
+      retrieval_timestamp: new Date().toISOString(),
+      target_coordinate: { lat: 19.1820, lon: 72.1150 },
+      ocean_current: {
+        sensor: "SARAL-AltiKa + INCOIS Ocean General Circulation Assimilation",
+        speed_knots: 1.25,
+        speed_ms: 0.64,
+        direction_deg: 55.0,
+        confidence_qc: "Passed Quality Control (Flag 0 - High Accuracy)",
+        layer_depth_meters: "Surface 0-1m"
+      },
+      ocean_wind: {
+        sensor: "OCEANSAT-3 OSCAT (12.5km L2B Ocean Wind Product)",
+        speed_knots: 16.5,
+        speed_ms: 8.5,
+        direction_deg: 70.0,
+        leeway_factor: 0.03,
+        ambiguity_selection: "Circular Median Filter (NRT Passed)",
+        swath_granule: "OS3_OSCAT_L2B_20260929_100000_050412.h5"
+      },
+      sea_surface_temperature_celsius: 28.6,
+      significant_wave_height_meters: 1.45
+    };
+
+    function renderMosdacDatasets(datasets) {
+      const grid = document.getElementById('mosdac-datasets-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      datasets.forEach(ds => {
+        const card = document.createElement('div');
+        card.className = 'p-3.5 bg-slate-900/90 rounded-lg border border-slate-800 space-y-1.5 text-xs font-mono shadow-md';
+        card.innerHTML = `
+          <div class="flex justify-between items-start">
+            <span class="font-bold text-emerald-400 text-sm">${ds.mission}</span>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">${ds.status}</span>
+          </div>
+          <p class="text-slate-100 font-bold">${ds.parameter}</p>
+          <div class="grid grid-cols-2 gap-1.5 text-[11px] text-slate-400 pt-1">
+            <div>Sensor: <span class="text-slate-200 font-semibold">${ds.instrument}</span></div>
+            <div>Resolution: <span class="text-slate-200 font-semibold">${ds.spatial_resolution}</span></div>
+            <div>Latency: <span class="text-slate-200 font-semibold">${ds.latency}</span></div>
+            <div>Format: <span class="text-slate-200 font-semibold">${ds.format}</span></div>
+          </div>
+          <div class="text-[10px] text-slate-500 border-t border-slate-800/80 pt-1.5">Authority: ${ds.provider}</div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderMarineCadastreTable(records) {
+      const tbody = document.getElementById('marinecadastre-table-body');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      records.slice(0, 30).forEach(r => {
+        const isTanker = r.VesselType === 81;
+        const tr = document.createElement('tr');
+        tr.className = isTanker ? 'bg-red-950/20 hover:bg-red-900/30' : 'hover:bg-slate-800/40';
+        tr.innerHTML = `
+          <td class="py-2 px-3 font-bold ${isTanker ? 'text-red-400' : 'text-slate-300'}">${r.MMSI}</td>
+          <td class="py-2 px-3 text-slate-400">${r.BaseDateTime}</td>
+          <td class="py-2 px-3">${r.LAT.toFixed(4)}</td>
+          <td class="py-2 px-3">${r.LON.toFixed(4)}</td>
+          <td class="py-2 px-3 font-semibold text-cyan-400">${r.SOG} kts</td>
+          <td class="py-2 px-3">${r.COG}°</td>
+          <td class="py-2 px-3 font-bold text-slate-100">${r.VesselName}</td>
+          <td class="py-2 px-3 text-slate-400">${r.IMO || 'N/A'}</td>
+          <td class="py-2 px-3"><span class="px-1.5 py-0.5 rounded ${isTanker ? 'bg-red-500/20 text-red-300' : 'bg-slate-800 text-slate-400'}">${r.VesselType}</span></td>
+          <td class="py-2 px-3 text-slate-400 truncate max-w-[120px]">${r.Status}</td>
+          <td class="py-2 px-3 text-slate-400">${r.Length}m × ${r.Width}m</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function setView(viewName) {
+      const views = {
+        tactical: document.getElementById('view-tactical'),
+        mosdac: document.getElementById('view-mosdac'),
+        marinecadastre: document.getElementById('view-marinecadastre'),
+        zenodo: document.getElementById('view-zenodo')
+      };
+
+      const tabs = {
+        tactical: document.getElementById('tab-tactical'),
+        mosdac: document.getElementById('tab-mosdac'),
+        marinecadastre: document.getElementById('tab-marinecadastre'),
+        zenodo: document.getElementById('tab-zenodo')
+      };
+
+      Object.keys(views).forEach(key => {
+        if (views[key]) {
+          views[key].style.display = 'none';
+          views[key].classList.add('hidden');
+          views[key].classList.remove('flex');
+        }
+        if (tabs[key]) {
+          tabs[key].className = 'px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 transition cursor-pointer font-mono text-xs flex items-center gap-1.5';
+        }
+      });
+
+      if (views[viewName]) {
+        views[viewName].style.display = 'flex';
+        views[viewName].classList.remove('hidden');
+        views[viewName].classList.add('flex');
+      }
+
+      if (tabs[viewName]) {
+        if (viewName === 'mosdac') {
+          tabs[viewName].className = 'px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 transition cursor-pointer font-mono text-xs font-bold flex items-center gap-1.5 shadow-sm';
+        } else if (viewName === 'zenodo') {
+          tabs[viewName].className = 'px-3 py-1.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 transition cursor-pointer font-mono text-xs font-bold flex items-center gap-1.5 shadow-sm';
+        } else {
+          tabs[viewName].className = 'px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 transition cursor-pointer font-mono text-xs font-bold flex items-center gap-1.5 shadow-sm';
+        }
+      }
+
+      if (viewName === 'tactical' && map) {
+        setTimeout(() => map.invalidateSize(), 100);
+      }
+
+      lucide.createIcons();
+    }
+
+    async function loadInitialData() {
+      renderMosdacDatasets(DEFAULT_MOSDAC_DATASETS);
+      document.getElementById('mosdac-telemetry-preview').innerText = JSON.stringify(DEFAULT_MOSDAC_TELEMETRY, null, 2);
+
+      await loadScenario('mumbai_high');
+
+      try {
+        const [mcRes, zenodoRes] = await Promise.all([
+          fetch('/api/v1/datasets/marinecadastre-ais').catch(() => null),
+          fetch('/api/v1/datasets/zenodo-sar').catch(() => null)
+        ]);
+
+        if (mcRes && mcRes.ok) {
+          const mcData = await mcRes.json();
+          marineCadastreRecords = mcData.records || [];
+          renderMarineCadastreTable(marineCadastreRecords);
+        }
+
+        if (zenodoRes && zenodoRes.ok) {
+          const zData = await zenodoRes.json();
+          zenodoSarData = zData.zenodo_sar_dataset;
+          document.getElementById('sar-geojson-preview').innerText = JSON.stringify(zenodoSarData.geojson, null, 2);
+        }
+      } catch (e) {}
+
+      lucide.createIcons();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      initMap();
+      loadInitialData();
+
+      // Tab Switching
+      document.getElementById('tab-tactical').addEventListener('click', () => setView('tactical'));
+      document.getElementById('tab-mosdac').addEventListener('click', () => setView('mosdac'));
+      document.getElementById('tab-marinecadastre').addEventListener('click', () => setView('marinecadastre'));
+      document.getElementById('tab-zenodo').addEventListener('click', () => setView('zenodo'));
+
+      // Scenario Selector
+      document.getElementById('select-scenario').addEventListener('change', (e) => {
+        loadScenario(e.target.value);
+      });
+
+      // Real-time Detection Simulation Pass Button
+      document.getElementById('btn-run-realtime-sim').addEventListener('click', () => {
+        runRealtimeSimulationPass();
+      });
+
+      // Sound Toggle Button
+      document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+        isSoundEnabled = !isSoundEnabled;
+        document.getElementById('sound-label').innerText = isSoundEnabled ? 'SOUND: ON' : 'SOUND: OFF';
+        document.getElementById('sound-icon').setAttribute('data-lucide', isSoundEnabled ? 'volume-2' : 'volume-x');
+        lucide.createIcons();
+      });
+
+      // Coast Guard Intercept Dispatch Buttons
+      const openDispatchModal = () => {
+        const modal = document.getElementById('modal-dispatch-icg');
+        const topSuspect = rankedVessels[0] || { vessel_name: "MT ARABIAN TITAN", mmsi: 636018244 };
+        document.getElementById('dispatch-target-name').innerText = topSuspect.vessel_name;
+        document.getElementById('dispatch-target-mmsi').innerText = topSuspect.mmsi;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        playAlertSiren();
+        addLiveLog(`FLASH INTERCEPT ORDER ISSUED for ${topSuspect.vessel_name} (MMSI: ${topSuspect.mmsi})`, "ALERT");
+      };
+
+      document.getElementById('btn-dispatch-icg').addEventListener('click', openDispatchModal);
+      document.getElementById('btn-modal-dispatch').addEventListener('click', () => {
+        document.getElementById('modal-dossier').classList.add('hidden');
+        openDispatchModal();
+      });
+
+      document.getElementById('btn-close-dispatch-modal').addEventListener('click', () => {
+        document.getElementById('modal-dispatch-icg').classList.add('hidden');
+      });
+
+      document.getElementById('btn-ack-dispatch').addEventListener('click', () => {
+        document.getElementById('modal-dispatch-icg').classList.add('hidden');
+      });
+
+      // Sliders
+      document.getElementById('slider-current-speed').addEventListener('input', (e) => {
+        currentSpeed = parseFloat(e.target.value);
+        triggerSimulation();
+      });
+      document.getElementById('slider-current-dir').addEventListener('input', (e) => {
+        currentDir = parseFloat(e.target.value);
+        triggerSimulation();
+      });
+      document.getElementById('slider-wind-speed').addEventListener('input', (e) => {
+        windSpeed = parseFloat(e.target.value);
+        triggerSimulation();
+      });
+      document.getElementById('slider-wind-dir').addEventListener('input', (e) => {
+        windDir = parseFloat(e.target.value);
+        triggerSimulation();
+      });
+
+      document.getElementById('btn-reset-env').addEventListener('click', () => {
+        currentSpeed = 1.25; currentDir = 55.0; windSpeed = 16.5; windDir = 70.0;
+        document.getElementById('slider-current-speed').value = 1.25;
+        document.getElementById('slider-current-dir').value = 55;
+        document.getElementById('slider-wind-speed').value = 16.5;
+        document.getElementById('slider-wind-dir').value = 70;
+        triggerSimulation();
+      });
+
+      // Timeline Scrubber
+      const timelineSlider = document.getElementById('slider-timeline');
+      timelineSlider.addEventListener('input', (e) => {
+        timelineScrub = parseFloat(e.target.value);
+        isPlaying = false;
+        clearInterval(playInterval);
+        document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+        lucide.createIcons();
+        document.getElementById('timeline-label').innerText = `T - ${(4.5 - timelineScrub).toFixed(2)}h (${(timelineScrub === 4.5 ? 'T_detect - NOW' : 'Simulating Drift')})`;
+        updateMap();
+      });
+
+      document.getElementById('btn-play-pause').addEventListener('click', () => {
+        isPlaying = !isPlaying;
+        if (isPlaying) {
+          document.getElementById('play-icon').setAttribute('data-lucide', 'pause');
+          lucide.createIcons();
+          playInterval = setInterval(() => {
+            timelineScrub += 0.1;
+            if (timelineScrub > 4.5) timelineScrub = 0.0;
+            timelineSlider.value = timelineScrub;
+            document.getElementById('timeline-label').innerText = `T - ${(4.5 - timelineScrub).toFixed(2)}h (${(timelineScrub >= 4.4 ? 'T_detect - NOW' : 'Simulating Drift')})`;
+            updateMap();
+          }, 150);
+        } else {
+          document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+          lucide.createIcons();
+          clearInterval(playInterval);
+        }
+      });
+
+      // Dossier modal events
+      document.getElementById('btn-export-dossier').addEventListener('click', () => {
+        openDossierModal(rankedVessels[0]);
+      });
+      document.getElementById('btn-close-modal').addEventListener('click', () => {
+        document.getElementById('modal-dossier').classList.add('hidden');
+      });
+      document.getElementById('btn-print-report').addEventListener('click', () => {
+        window.print();
+      });
+
+      // Import modal events
+      document.getElementById('btn-import-ais').addEventListener('click', () => {
+        document.getElementById('modal-import-ais').classList.remove('hidden');
+        document.getElementById('modal-import-ais').classList.add('flex');
+      });
+      document.getElementById('btn-close-import-modal').addEventListener('click', () => {
+        document.getElementById('modal-import-ais').classList.add('hidden');
+      });
+      document.getElementById('btn-cancel-import').addEventListener('click', () => {
+        document.getElementById('modal-import-ais').classList.add('hidden');
+      });
+      document.getElementById('btn-load-sample-csv').addEventListener('click', async () => {
+        const sampleCsv = `MMSI,BaseDateTime,LAT,LON,SOG,COG,Heading,VesselName,IMO,VesselType,Status,Length,Width,Draft,Cargo,TransceiverClass\n636018244,2026-09-29T05:30:00Z,18.9800,72.0950,13.6,334.0,335,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A\n636018244,2026-09-29T06:15:00Z,19.1120,72.0310,13.2,335.0,335,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A\n636018244,2026-09-29T07:00:00Z,19.2080,71.9860,13.7,336.0,336,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A`;
+        document.getElementById('ais-import-textarea').value = sampleCsv;
+      });
+      document.getElementById('btn-submit-ais-import').addEventListener('click', async () => {
+        const rawAis = document.getElementById('ais-import-textarea').value;
+        if (!rawAis) return alert('Please enter or load AIS CSV data');
+        try {
+          const res = await fetch('/api/v1/upload-ais', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw_ais_data: rawAis })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            rankedVessels = data.ranked_vessels;
+            document.getElementById('modal-import-ais').classList.add('hidden');
+            renderVesselCards();
+            updateMap();
+            alert(`✅ Successfully parsed & correlated ${data.parsed_vessels_count} vessels from Marine Cadastre CSV stream!`);
+          }
+        } catch (e) {
+          alert('Failed to parse AIS dataset');
+        }
+      });
+
+      // MOSDAC Telemetry Sync
+      document.getElementById('btn-sync-mosdac').addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/v1/mosdac/telemetry');
+          if (res.ok) {
+            const data = await res.json();
+            const tel = data.telemetry;
+            currentSpeed = tel.ocean_current.speed_knots;
+            currentDir = tel.ocean_current.direction_deg;
+            windSpeed = tel.ocean_wind.speed_knots;
+            windDir = tel.ocean_wind.direction_deg;
+
+            document.getElementById('slider-current-speed').value = currentSpeed;
+            document.getElementById('slider-current-dir').value = currentDir;
+            document.getElementById('slider-wind-speed').value = windSpeed;
+            document.getElementById('slider-wind-dir').value = windDir;
+
+            triggerSimulation();
+            alert(`✅ Synchronized real-time ISRO MOSDAC telemetry:\n• Current: ${currentSpeed} kts @ ${currentDir}° (${tel.ocean_current.sensor})\n• Wind: ${windSpeed} kts @ ${windDir}° (${tel.ocean_wind.sensor})`);
+            setView('tactical');
+          }
+        } catch (e) {
+          alert('Failed to sync MOSDAC telemetry stream');
+        }
+      });
+
+      // Download CSV / GeoJSON
+      document.getElementById('btn-download-mc-csv').addEventListener('click', () => {
+        const csvContent = "data:text/csv;charset=utf-8,MMSI,BaseDateTime,LAT,LON,SOG,COG,Heading,VesselName,IMO,VesselType,Status,Length,Width,Draft,Cargo,TransceiverClass\n636018244,2026-09-29T05:30:00Z,18.9800,72.0950,13.6,334.0,335,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A\n636018244,2026-09-29T06:15:00Z,19.1120,72.0310,13.2,335.0,335,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A\n636018244,2026-09-29T07:00:00Z,19.2080,71.9860,13.7,336.0,336,MT ARABIAN TITAN,IMO9384812,81,0,333,60,21.5,81,A";
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "marinecadastre_ais_sample.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
+
+      document.getElementById('btn-download-sar-geojson').addEventListener('click', () => {
+        const geojsonStr = JSON.stringify(zenodoSarData ? zenodoSarData.geojson : {}, null, 2);
+        const blob = new Blob([geojsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "zenodo_sentinel1_sar_sample.geojson";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+    });
+  </script>
+</body>
+</html>

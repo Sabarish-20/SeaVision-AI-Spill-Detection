@@ -1,0 +1,23 @@
+{
+  "auth": {
+    "username": "guest_user",
+    "email": "user@domain.gov.in",
+    "api_endpoint": "https://mosdac.gov.in/api/v1",
+    "wms_endpoint": "https://mosdac.gov.in/wms"
+  },
+  "missions": {
+    "wind_satellite": "OCEANSAT-3",
+    "wind_sensor": "OSCAT",
+    "wind_dataset_id": "OS3_OSCAT_L2B_WIND",
+    "current_satellite": "SARAL-AltiKa",
+    "current_sensor": "ALTIKA",
+    "current_dataset_id": "SARAL_ALTIKA_OGDR"
+  },
+  "region_bounding_box": {
+    "min_lat": 15.0,
+    "max_lat": 23.0,
+    "min_lon": 68.0,
+    "max_lon": 76.0,
+    "description": "Indian EEZ - Arabian Sea / Mumbai Offshore Basin"
+  }
+}
